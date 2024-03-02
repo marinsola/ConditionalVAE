@@ -29,9 +29,7 @@ class SyntheticData:
                  n_env,
                  eta,
                  device,
-                 interventions=False,
-                 standardize = True,
-                 numeasy = True,
+                 interventions = False,
                  n_batch = 10,
                  seed = None):
         '''
@@ -43,7 +41,6 @@ class SyntheticData:
         x_dim : no. of X features
         interventions: bool, with or without interventions on the target
         eta : interventions strength
-        numeasy : whether or not beta generated to make inference "difficult"
 
         attributes:
         b : true causal vector
@@ -63,11 +60,7 @@ class SyntheticData:
 
         self.latent_fn()
 
-        if numeasy:
-            self.b = torch.normal(mean=2,std=3,size=(self.n_feat,1))
-        else:
-            self.b = torch.randint(-10,10,(self.n_feat,1),dtype = torch.float32)
-
+        self.b = torch.randint(-10,10,(self.n_feat,1),dtype = torch.float32)
 
         self.ncond = n_env + 1
 
@@ -86,8 +79,8 @@ class SyntheticData:
         if self.seed is not None:
             torch.manual_seed(self.seed)
         with torch.no_grad():
-            self.lat_fn = nn.Sequential(nn.Linear(self.n_feat,100),nn.ReLU(),nn.Linear(100,100),nn.ReLU(),
-                                        nn.Linear(100,100),nn.ReLU(), nn.Linear(100,100),nn.ReLU(), nn.Linear(100,self.X_dim))
+            self.lat_fn = nn.Sequential(nn.Linear(self.n_feat,300),nn.ReLU(),nn.Linear(300,300),nn.ReLU(),
+                                        nn.Linear(300,300),nn.ReLU(), nn.Linear(300,300),nn.ReLU(), nn.Linear(300,self.X_dim))
 
     def get_train_data(self):
         Z = torch.zeros(size=(self.n_per_env*self.n_env,self.n_feat))
@@ -100,7 +93,7 @@ class SyntheticData:
         ).sample((self.n_per_env*self.n_env,))
 
         for i in range(self.n_env):
-            Z[i *self.n_per_env : (i+1)*self.n_per_env, : ] = eps_ZY[i *self.n_per_env : (i+1)*self.n_per_env, :-1] + i * torch.normal(mean = 1, std = 1.1, size = (self.n_per_env, self.n_feat))
+            Z[i *self.n_per_env : (i+1)*self.n_per_env, : ] = eps_ZY[i *self.n_per_env : (i+1)*self.n_per_env, :-1] + i * torch.normal(mean = 1, std = 1, size = (self.n_per_env, self.n_feat))
 
             if self.interventions == True:
                 Y[i*self.n_per_env:(i+1)*self.n_per_env] = (
@@ -116,14 +109,7 @@ class SyntheticData:
         with torch.no_grad():
             X = self.lat_fn(Z)
 
-        if self.standardize:
-            self.mean_X, self.std_X = torch.mean(X, dim = 0), torch.std(X, dim = 0)
-            self.mean_Y, self.std_Y = torch.mean(Y), torch.std(Y)
-
-            return (X - self.mean_X)/self.std_X, (Y - self.mean_Y)/self.std_Y, Z, E
-
-        else:
-            return X,Y,Z,E
+        return X,Y,Z,E
 
     def get_loader(self,batch_size):
         if self.seed is not None:
@@ -138,20 +124,17 @@ class SyntheticData:
             torch.manual_seed(self.seed)
 
         v = torch.distributions.multivariate_normal.MultivariateNormal(
-            torch.zeros(self.n_feat + 1), self.eta * self.cov_v
+            self.eta * torch.ones(self.n_feat + 1), self.eta**2 * self.cov_v
         ).sample((self.n_per_env,))
         eps_ZY = torch.distributions.multivariate_normal.MultivariateNormal(
             torch.zeros(self.n_feat + 1), self.cov_Z
         ).sample((self.n_per_env,))
-        Z_test = eps_ZY[:, :-1] + v[:,:-1] #torch.normal(mean=1,std=2.5,size=(self.n_per_env,self.n_feat))
+        Z_test = eps_ZY[:, :-1] + v[:,:-1] 
         with torch.no_grad():
             X_test = self.lat_fn(Z_test)
         if self.interventions == True:
-            Y_test=(Z_test@self.b + eps_ZY[:,-1].unsqueeze(1)) + v[:,-1]  #self.eta * torch.normal(mean=1,std=2,size=(self.n_per_env,1))
+            Y_test=(Z_test@self.b + eps_ZY[:,-1].unsqueeze(1)) + v[:,-1].unsqueeze(1)  
         else:
             Y_test=(Z_test@self.b + eps_ZY[:,-1].unsqueeze(1))
 
-        if self.standardize:
-            return (X_test - self.mean_X)/self.std_X, (Y_test - self.mean_Y)/self.std_Y, Z_test
-        else:
-            return X_test,Y_test,Z_test
+        return X_test,Y_test,Z_test
