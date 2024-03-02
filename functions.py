@@ -29,7 +29,7 @@ def KLD(v_mean,v_logvar,prior_mean,prior_logvar):
 def train_cvae(model,data,optimizer,n_iters,device,
                output_all = False, gamma = 5, plot = True):
     model.train()
-    validations = []
+    trains, validations = [], []
     for epoch in range(n_iters):
         epoch_loss = 0
         recon = 0
@@ -56,15 +56,27 @@ def train_cvae(model,data,optimizer,n_iters,device,
 
         elif output_all:
             print('{}/{}, epoch loss: {:.4f}, recons. loss: {:.4f}, DKL: {:.4f}'.format(epoch+1,n_iters,epoch_loss.item(),recon.item(),dkl.item()))
-            insample, testeror = evaluate_c(model, data, device, gamma = gamma)
+            trainerror, testerror = evaluate_c(model, data, device, gamma = gamma)
             if plot:
-                validations.append((insample.item(),testeror.item()))
+                trains.append(trainerror.item())
+                validations.append(testerror.item())
             model.train()
-            print('In sample total: {:.4f},   On test: {:.4f}'.format(insample, testeror),'\n')
+            print('In sample total: {:.4f},   On test: {:.4f}'.format(trainerror, testerror),'\n')
 
     print('Done, final loss: {:.4f}'.format(epoch_loss))
     if plot:
-        plt.plot(validations)
+        plt.figure(figsize = (6,4))
+        plt.plot(trains, c = 'blue')
+        plt.grid(True)
+        plt.title('Train error')
+        plt.show()
+        plt.plot(validations, c = 'red')
+        plt.grid(True)
+        plt.title('Test error')
+        plt.show()
+    return trains, validations
+
+
     return None
 
 def evaluate_c(model, data, device, gamma = 5):
@@ -72,12 +84,19 @@ def evaluate_c(model, data, device, gamma = 5):
     data.Y, data.Y_test = data.Y.to(device), data.Y_test.to(device)
     model.eval()
     V_mean = model(data.X)[2]
-    drig = drig_est(V_mean, data.Y, gamma = gamma, m = data.n_env, d = data.n_feat)
+
+    center = torch.mean(V_mean[:data.n_per_env], dim = 0)
+    y_center = torch.mean(data.Y[:data.n_per_env])
+
+    V_mean_centered = V_mean - center
+    Y_centered = data.Y - y_center
+
+    drig = drig_est(V_mean_centered, Y_centered, gamma = gamma, m = data.n_env, d = data.n_feat)
     V_mean_test = model(data.X_test)[2]
 
-    insamplerror = F.mse_loss(V_mean @ drig, data.Y)
-    testerror = F.mse_loss(V_mean_test @ drig, data.Y_test)
-    return insamplerror, testerror
+    trainerror = F.mse_loss(V_mean_centered @ drig, Y_centered)
+    testerror = F.mse_loss((V_mean_test-center) @ drig, (data.Y_test-y_center))
+    return trainerror, testerror
 def train(model,data,optimizer,n_iters,device, out_all, plot = True):
     '''
     For training baselines
@@ -107,7 +126,6 @@ def train(model,data,optimizer,n_iters,device, out_all, plot = True):
             model.train()
     if plot:
         plt.plot(vals)
-        plt.ylim([0,10])
     print('Done, final loss: {:.4f}'.format(epoch_loss))
 def drig_est(X,Y,gamma,m,d):
     '''
@@ -126,12 +144,15 @@ def drig_est(X,Y,gamma,m,d):
     return torch.inverse(G)@Zz
 
 def base_eval(model, data):
+    model.eval()
     model.to('cpu')
-    y_pred = model(data.X.to('cpu')).to('cpu')
+    y_pred = model(data.X.to('cpu'))
     print(f'Baseline in sample: {F.mse_loss(y_pred, data.Y)}')
-    y_pred_test = model(data.X_test.to('cpu')).to('cpu')
+    y_pred_test = model(data.X_test.to('cpu'))
     print(f'Baseline on test: {F.mse_loss(y_pred_test, data.Y_test)}')
+    model.train()
 
 def get_covariance(n_feats):
     L = torch.rand(n_feats**2).reshape(n_feats,n_feats)
-    return L.t() @ L
+    M = L.t() @ L
+    return M / torch.linalg.matrix_norm(M)
