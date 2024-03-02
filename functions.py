@@ -141,7 +141,7 @@ def drig_est(X,Y,gamma,m,d):
     y_e=Y.reshape(m,size,1)
     G=(1-gamma)*(x_e[0].t()@x_e[0]/size) + (1/m)*gamma*sum([x_e[i].t()@x_e[i]/size for i in range(1,m)])
     Zz=(1-gamma)*(x_e[0].t()@y_e[0]/size) + (1/m)*gamma*sum([x_e[i].t()@y_e[i]/size for i in range(1,m)])
-    return torch.inverse(G)@Zz
+    return torch.inverse(G) @ Zz
 
 def base_eval(model, data):
     model.eval()
